@@ -1,0 +1,1187 @@
+import { useState, useEffect, useCallback } from "react";
+
+// ════════════════════════════════════════════════════════════════
+// COLOR PALETTE
+// ════════════════════════════════════════════════════════════════
+const C = {
+  user:"#4A90D9", cdn:"#8B5CF6", lb:"#10B981", compute:"#F59E0B",
+  db:"#EF4444", storage:"#06B6D4", security:"#EC4899",
+  queue:"#F97316", iot:"#14B8A6",
+  vpcBg:"rgba(0,102,204,0.08)", lane:"rgba(255,255,255,0.04)",
+};
+
+// ════════════════════════════════════════════════════════════════
+// SVG HELPERS
+// ════════════════════════════════════════════════════════════════
+function ServiceBox({ x, y, w=110, h=52, color, icon, label, sublabel }) {
+  return (
+    <g>
+      <rect x={x} y={y} width={w} height={h} rx={8} fill={`${color}22`} stroke={color} strokeWidth={1.5}/>
+      <text x={x+w/2} y={y+16} textAnchor="middle" fontSize={14} fill={color}>{icon}</text>
+      <text x={x+w/2} y={y+30} textAnchor="middle" fontSize={9.5} fontWeight="700" fill="#fff">{label}</text>
+      {sublabel && <text x={x+w/2} y={y+42} textAnchor="middle" fontSize={8} fill="rgba(255,255,255,0.45)">{sublabel}</text>}
+    </g>
+  );
+}
+function Arrow({ x1,y1,x2,y2,color="rgba(255,255,255,0.25)",dashed=false }) {
+  const dx=x2-x1,dy=y2-y1,len=Math.sqrt(dx*dx+dy*dy)||1;
+  const ux=dx/len,uy=dy/len,ex=x2-ux*8,ey=y2-uy*8;
+  return (
+    <g>
+      <line x1={x1} y1={y1} x2={ex} y2={ey} stroke={color} strokeWidth={1.5} strokeDasharray={dashed?"4 3":"none"}/>
+      <polygon points={`${x2},${y2} ${x2-ux*10-uy*5},${y2-uy*10+ux*5} ${x2-ux*10+uy*5},${y2-uy*10-ux*5}`} fill={color}/>
+    </g>
+  );
+}
+function VpcBox({ x,y,w,h,label }) {
+  return (
+    <g>
+      <rect x={x} y={y} width={w} height={h} rx={12} fill={C.vpcBg} stroke="rgba(0,102,204,0.4)" strokeWidth={1.5} strokeDasharray="6 3"/>
+      <text x={x+12} y={y+16} fontSize={9} fill="rgba(0,180,255,0.6)" fontWeight="700" letterSpacing="1">{label}</text>
+    </g>
+  );
+}
+function AzLane({ x,y,w,h,label }) {
+  return (
+    <g>
+      <rect x={x} y={y} width={w} height={h} rx={6} fill={C.lane} stroke="rgba(255,255,255,0.06)" strokeWidth={1}/>
+      <text x={x+8} y={y+13} fontSize={8} fill="rgba(255,255,255,0.25)">{label}</text>
+    </g>
+  );
+}
+function CloudBoundary({ x,y,w,h }) {
+  return <rect x={x} y={y} width={w} height={h} rx={16} fill="rgba(255,255,255,0.015)" stroke="rgba(255,255,255,0.06)" strokeWidth={1}/>;
+}
+
+// ════════════════════════════════════════════════════════════════
+// DIAGRAMS
+// ════════════════════════════════════════════════════════════════
+function DiagramWeb({ answers }) {
+  const az=answers.az||"2az", fe=answers.frontend||"spa", comp=answers.compute||"ecs";
+  const db=answers.database||"aurora", sec=answers.security||"standard";
+  const W=760,H=480;
+  const azCount=az==="3az"?3:az==="1az"?1:2;
+  const azW=azCount===3?170:azCount===2?220:320;
+  const azColors=["#3B82F6","#10B981","#8B5CF6"];
+  const compLabel=comp==="lambda"?"Lambda":comp==="ecs"?"ECS Fargate":comp==="ec2"?"EC2 ASG":"EKS";
+  const compIcon=comp==="lambda"?"λ":comp==="ecs"?"🐳":comp==="ec2"?"🖥":"☸";
+  const dbLabel=db==="aurora"?"Aurora":db==="rds"?"RDS":db==="dynamodb"?"DynamoDB":"Aurora+DDB";
+  const feLabel=fe==="ssr"?"ALB+SSR":"CloudFront+S3";
+  const secY=sec!=="basic"?100:70; const feY=sec!=="basic"?172:140;
+  const totalAzW=azCount*azW+(azCount-1)*10;
+  const azStartX=Math.max(50,(W-totalAzW)/2-20);
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{display:"block"}}>
+      <CloudBoundary x={10} y={10} w={W-20} h={H-20}/>
+      <text x={30} y={32} fontSize={10} fill="rgba(255,165,0,0.5)" fontWeight="700">AWS Cloud</text>
+      <ServiceBox x={330} y={24} w={100} h={46} color={C.user} icon="👤" label="Internet" sublabel="Users"/>
+      {sec!=="basic"&&<><Arrow x1={380} y1={70} x2={380} y2={secY} color={C.security}/><ServiceBox x={305} y={secY} w={150} h={46} color={C.security} icon="🛡" label={sec==="high"?"WAF + Shield":"WAF"} sublabel="AWS WAF"/></>}
+      <Arrow x1={380} y1={sec!=="basic"?146:70} x2={380} y2={feY} color="rgba(255,255,255,0.3)"/>
+      <ServiceBox x={290} y={feY} w={180} h={50} color={C.cdn} icon={fe==="ssr"?"🔄":"⚡"} label={feLabel} sublabel={fe==="ssr"?"Server-Side Render":"CDN + Static"}/>
+      {(fe==="spa"||fe==="static")&&<><ServiceBox x={40} y={feY} w={110} h={48} color={C.storage} icon="📦" label="S3" sublabel="Static Assets"/><Arrow x1={150} y1={feY+24} x2={290} y2={feY+24} color={C.storage+"88"}/></>}
+      <VpcBox x={30} y={feY+76} w={W-60} h={H-feY-96} label="VPC"/>
+      <Arrow x1={380} y1={feY+50} x2={380} y2={feY+100} color="rgba(255,255,255,0.3)"/>
+      <ServiceBox x={305} y={feY+100} w={150} h={46} color={C.lb} icon="⚖" label="ALB" sublabel="Application LB"/>
+      {Array.from({length:azCount}).map((_,i)=>{
+        const lx=azStartX+i*(azW+10),ly=feY+165;
+        return (<g key={i}><AzLane x={lx} y={ly} w={azW} h={90} label={`AZ-${String.fromCharCode(97+i)}`}/><ServiceBox x={lx+10} y={ly+18} w={azW-20} h={48} color={C.compute} icon={compIcon} label={compLabel} sublabel="App Server"/><Arrow x1={380} y1={feY+146} x2={lx+azW/2} y2={ly+18} color={azColors[i]+"99"}/></g>);
+      })}
+      <Arrow x1={azStartX+totalAzW/2} y1={feY+255} x2={620} y2={feY+190} color={C.db+"99"} dashed/>
+      <ServiceBox x={580} y={feY+165} w={140} h={48} color={C.db} icon="🗄" label={dbLabel} sublabel={db==="dynamodb"?"NoSQL":"Multi-AZ RDB"}/>
+      <text x={W-20} y={H-8} textAnchor="end" fontSize={8} fill="rgba(255,255,255,0.2)">AWS Architecture Diagram</text>
+    </svg>
+  );
+}
+function DiagramApi({ answers }) {
+  const comp=answers.compute||"lambda", db=answers.database||"dynamodb";
+  const sec=answers.security||"cognito", region=answers.region||"ap-northeast-1";
+  const W=760,H=420;
+  const compLabel=comp==="lambda"?"Lambda":comp==="ecs"?"ECS Fargate":"API Gateway v2";
+  const compIcon=comp==="lambda"?"λ":comp==="ecs"?"🐳":"⚡";
+  const dbLabel=db==="dynamodb"?"DynamoDB":db==="aurora-serverless"?"Aurora Serverless":"RDS + Replica";
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{display:"block"}}>
+      <CloudBoundary x={10} y={10} w={W-20} h={H-20}/>
+      <text x={30} y={32} fontSize={10} fill="rgba(255,165,0,0.5)" fontWeight="700">AWS Cloud</text>
+      <ServiceBox x={60} y={30} w={100} h={48} color={C.user} icon="📱" label="Mobile App" sublabel="Client"/>
+      <ServiceBox x={600} y={30} w={100} h={48} color={C.user} icon="🖥" label="Web App" sublabel="Client"/>
+      <ServiceBox x={310} y={28} w={140} h={48} color={C.security} icon="🔐" label={sec==="cognito"?"Cognito":sec==="apikey"?"API Key + WAF":"IAM Auth"} sublabel="Authentication"/>
+      <Arrow x1={160} y1={54} x2={310} y2={54} color={C.security+"88"}/>
+      <Arrow x1={600} y1={54} x2={450} y2={54} color={C.security+"88"}/>
+      <Arrow x1={380} y1={76} x2={380} y2={126} color="rgba(255,255,255,0.3)"/>
+      <ServiceBox x={285} y={126} w={190} h={48} color={C.cdn} icon="🔀" label="API Gateway" sublabel={comp==="apigw-http"?"HTTP API v2":"REST API"}/>
+      <VpcBox x={30} y={194} w={W-60} h={H-214} label="VPC"/>
+      {region==="multi"&&<g><rect x={50} y={200} w={120} h={60} rx={6} fill="rgba(139,92,246,0.1)" stroke={C.cdn} strokeWidth={1} strokeDasharray="4 2"/><text x={110} y={222} textAnchor="middle" fontSize={8} fill={C.cdn} fontWeight="700">CloudFront</text><text x={110} y={235} textAnchor="middle" fontSize={8} fill="rgba(255,255,255,0.4)">Global Edge</text><Arrow x1={170} y1={230} x2={285} y2={230} color={C.cdn+"88"}/></g>}
+      <Arrow x1={380} y1={174} x2={380} y2={220} color="rgba(255,255,255,0.3)"/>
+      <ServiceBox x={285} y={220} w={190} h={52} color={C.compute} icon={compIcon} label={compLabel} sublabel="Business Logic"/>
+      <Arrow x1={475} y1={246} x2={560} y2={280} color={C.db+"88"} dashed/>
+      <ServiceBox x={560} y={260} w={150} h={52} color={C.db} icon="🗄" label={dbLabel} sublabel="Data Store"/>
+      {db!=="dynamodb"&&<><Arrow x1={475} y1={246} x2={560} y2={340} color={C.storage+"66"} dashed/><ServiceBox x={560} y={330} w={150} h={48} color={C.storage} icon="⚡" label="ElastiCache" sublabel="Redis Cache"/></>}
+      <text x={W-20} y={H-8} textAnchor="end" fontSize={8} fill="rgba(255,255,255,0.2)">AWS Architecture Diagram</text>
+    </svg>
+  );
+}
+function DiagramData({ answers }) {
+  const ing=answers.ingestion||"s3-batch", stor=answers.storage||"lake";
+  const trans=answers.transform||"glue", viz=answers.viz||"quicksight";
+  const W=760,H=400;
+  const ingLabel=ing==="s3-batch"?"S3 Upload":ing==="kinesis"?"Kinesis Streams":ing==="dms"?"DMS (CDC)":"AppFlow";
+  const ingIcon=ing==="s3-batch"?"📦":ing==="kinesis"?"🌊":ing==="dms"?"🔄":"☁";
+  const storLabel=stor==="lake"?"S3 Data Lake":stor==="redshift"?"Redshift DWH":"S3 + Redshift";
+  const transLabel=trans==="glue"?"AWS Glue":trans==="emr"?"EMR (Spark)":"Lambda ETL";
+  const vizLabel=viz==="quicksight"?"QuickSight":viz==="athena"?"Athena":"External BI";
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{display:"block"}}>
+      <CloudBoundary x={10} y={10} w={W-20} h={H-20}/>
+      <text x={30} y={32} fontSize={10} fill="rgba(255,165,0,0.5)" fontWeight="700">AWS Cloud — Data Platform</text>
+      {["収集層","ストレージ層","変換層","可視化層"].map((l,i)=><text key={l} x={70+i*170} y={58} textAnchor="middle" fontSize={9} fill="rgba(255,255,255,0.3)" fontWeight="700">{l}</text>)}
+      {[1,2,3].map(i=><line key={i} x1={155+i*170} y1={65} x2={155+i*170} y2={H-30} stroke="rgba(255,255,255,0.06)" strokeWidth={1} strokeDasharray="4 3"/>)}
+      <ServiceBox x={20} y={90} w={100} h={48} color={C.user} icon="🗄" label="Source DB" sublabel="Existing System"/>
+      <ServiceBox x={20} y={160} w={100} h={48} color={C.user} icon="📁" label="Files / Logs" sublabel="Raw Data"/>
+      <ServiceBox x={20} y={230} w={100} h={48} color={C.user} icon="📡" label="SaaS / API" sublabel="External"/>
+      <Arrow x1={120} y1={114} x2={155} y2={170} color={C.iot+"88"}/>
+      <Arrow x1={120} y1={184} x2={155} y2={184} color={C.iot+"88"}/>
+      <Arrow x1={120} y1={254} x2={155} y2={200} color={C.iot+"88"}/>
+      <ServiceBox x={140} y={150} w={120} h={52} color={C.iot} icon={ingIcon} label={ingLabel} sublabel="Ingestion"/>
+      <Arrow x1={260} y1={176} x2={310} y2={stor==="lakehouse"?134:166} color={C.storage+"99"}/>
+      {stor==="lakehouse"?<><ServiceBox x={300} y={110} w={130} h={48} color={C.storage} icon="🏞" label="S3 Data Lake" sublabel="Raw / Processed"/><ServiceBox x={300} y={178} w={130} h={48} color={C.db} icon="📊" label="Redshift DWH" sublabel="Structured"/><Arrow x1={260} y1={176} x2={310} y2={200} color={C.db+"99"}/></>:
+        <ServiceBox x={300} y={140} w={130} h={52} color={stor==="redshift"?C.db:C.storage} icon={stor==="redshift"?"📊":"🏞"} label={storLabel} sublabel={stor==="redshift"?"Columnar DWH":"Object Storage"}/>}
+      <Arrow x1={430} y1={166} x2={475} y2={166} color={C.compute+"99"}/>
+      <ServiceBox x={470} y={140} w={120} h={52} color={C.compute} icon={trans==="glue"?"🔧":trans==="emr"?"⚡":"λ"} label={transLabel} sublabel="ETL / Transform"/>
+      <Arrow x1={590} y1={166} x2={630} y2={166} color={C.cdn+"99"}/>
+      <ServiceBox x={620} y={140} w={120} h={52} color={C.cdn} icon={viz==="quicksight"?"📈":viz==="athena"?"🔍":"🎨"} label={vizLabel} sublabel="Analytics / BI"/>
+      {trans==="glue"&&<><ServiceBox x={470} y={240} w={120} h={48} color={C.queue} icon="📚" label="Glue Catalog" sublabel="Metadata"/><Arrow x1={530} y1={192} x2={530} y2={240} color={C.queue+"66"} dashed/></>}
+      <text x={W-20} y={H-8} textAnchor="end" fontSize={8} fill="rgba(255,255,255,0.2)">AWS Architecture Diagram</text>
+    </svg>
+  );
+}
+function DiagramBatch({ answers }) {
+  const comp=answers.compute||"batch", orch=answers.orchestration||"step-functions";
+  const W=760,H=400;
+  const compLabel=comp==="batch"?"AWS Batch":comp==="lambda"?"Lambda":comp==="ecs-scheduled"?"ECS Task":"AWS Glue";
+  const compIcon=comp==="batch"?"📦":comp==="lambda"?"λ":comp==="ecs-scheduled"?"🐳":"🔧";
+  const orchLabel=orch==="step-functions"?"Step Functions":orch==="eventbridge"?"EventBridge":"MWAA (Airflow)";
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{display:"block"}}>
+      <CloudBoundary x={10} y={10} w={W-20} h={H-20}/>
+      <text x={30} y={32} fontSize={10} fill="rgba(255,165,0,0.5)" fontWeight="700">AWS Cloud — Batch Processing</text>
+      <ServiceBox x={40} y={80} w={120} h={50} color={C.queue} icon="⏰" label="EventBridge" sublabel="Cron Trigger"/>
+      <Arrow x1={160} y1={105} x2={220} y2={105} color={C.queue+"99"}/>
+      <ServiceBox x={210} y={80} w={150} h={50} color={C.cdn} icon={orch==="step-functions"?"🔀":orch==="eventbridge"?"⏰":"🌬"} label={orchLabel} sublabel="Workflow Control"/>
+      <Arrow x1={360} y1={105} x2={420} y2={75} color="rgba(255,255,255,0.3)"/>
+      <Arrow x1={360} y1={105} x2={420} y2={155} color="rgba(255,255,255,0.3)"/>
+      <VpcBox x={30} y={150} w={W-60} h={210} label="VPC"/>
+      <ServiceBox x={410} y={55} w={130} h={50} color={C.compute} icon={compIcon} label={`Job A: ${compLabel}`} sublabel="Extract / Transform"/>
+      <ServiceBox x={410} y={160} w={130} h={50} color={C.compute} icon={compIcon} label={`Job B: ${compLabel}`} sublabel="Load / Output"/>
+      <Arrow x1={475} y1={105} x2={475} y2={160} color={C.compute+"66"}/>
+      <ServiceBox x={60} y={210} w={120} h={50} color={C.storage} icon="📦" label="S3 Input" sublabel="Source Data"/>
+      <Arrow x1={180} y1={235} x2={410} y2={185} color={C.storage+"88"} dashed/>
+      <ServiceBox x={580} y={210} w={140} h={50} color={C.db} icon="🗄" label="RDS / S3 / DDB" sublabel="Output Store"/>
+      <Arrow x1={540} y1={185} x2={580} y2={235} color={C.db+"88"} dashed/>
+      <ServiceBox x={60} y={300} w={130} h={48} color={C.security} icon="📊" label="CloudWatch" sublabel="Logs + Alerts"/>
+      <Arrow x1={475} y1={210} x2={125} y2={300} color={C.security+"55"} dashed/>
+      <ServiceBox x={220} y={300} w={120} h={48} color={C.queue} icon="🔔" label="SNS" sublabel="Notifications"/>
+      <Arrow x1={190} y1={324} x2={220} y2={324} color={C.queue+"66"} dashed/>
+      <text x={W-20} y={H-8} textAnchor="end" fontSize={8} fill="rgba(255,255,255,0.2)">AWS Architecture Diagram</text>
+    </svg>
+  );
+}
+function DiagramMicroservice({ answers }) {
+  const platform=answers.platform||"ecs", mesh=answers.servicemesh||"alb", obs=answers.observability||"xray";
+  const W=760,H=460;
+  const platLabel=platform==="eks"?"EKS":platform==="ecs"?"ECS Fargate":"Lambda";
+  const platIcon=platform==="eks"?"☸":platform==="ecs"?"🐳":"λ";
+  const svcs=[{label:"Service A",sub:"User Mgmt",x:55,color:"#3B82F6"},{label:"Service B",sub:"Orders",x:205,color:"#10B981"},{label:"Service C",sub:"Payments",x:355,color:"#F59E0B"},{label:"Service D",sub:"Notify",x:505,color:"#8B5CF6"}];
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{display:"block"}}>
+      <CloudBoundary x={10} y={10} w={W-20} h={H-20}/>
+      <text x={30} y={32} fontSize={10} fill="rgba(255,165,0,0.5)" fontWeight="700">AWS Cloud — Microservices</text>
+      <ServiceBox x={330} y={24} w={100} h={46} color={C.user} icon="👤" label="Internet" sublabel="Users"/>
+      <Arrow x1={380} y1={70} x2={380} y2={100} color="rgba(255,255,255,0.3)"/>
+      <ServiceBox x={270} y={100} w={220} h={46} color={C.cdn} icon="🔀" label={mesh==="alb"?"API Gateway + ALB":mesh==="appmesh"?"App Mesh + ALB":"API Gateway"} sublabel="Entry Point"/>
+      <VpcBox x={30} y={164} w={W-60} h={270} label="VPC"/>
+      {svcs.map(s=><g key={s.label}><Arrow x1={380} y1={146} x2={s.x+65} y2={190} color={s.color+"77"}/><ServiceBox x={s.x} y={190} w={130} h={52} color={s.color} icon={platIcon} label={s.label} sublabel={`${platLabel}: ${s.sub}`}/></g>)}
+      {mesh==="eventbridge-async"&&<><ServiceBox x={255} y={268} w={210} h={46} color={C.queue} icon="📨" label="EventBridge / SQS" sublabel="Async Messaging"/>{svcs.map(s=><Arrow key={s.label} x1={s.x+65} y1={242} x2={340} y2={268} color={C.queue+"55"} dashed/>)}</>}
+      {svcs.map((s,i)=>{const dbl=["DynamoDB","Aurora","RDS","DynamoDB"];return(<g key={i}><Arrow x1={s.x+65} y1={242} x2={s.x+65} y2={340} color={s.color+"66"} dashed/><ServiceBox x={s.x} y={340} w={130} h={46} color={s.color} icon="🗄" label={dbl[i]} sublabel="Per-Service DB"/></g>);})}
+      <ServiceBox x={640} y={200} w={100} h={46} color={C.security} icon={obs==="xray"?"🔍":obs==="opensource"?"📊":"🐕"} label={obs==="xray"?"X-Ray":obs==="opensource"?"Grafana":"Datadog"} sublabel="Observability"/>
+      <ServiceBox x={630} y={286} w={110} h={46} color={C.security} icon="📊" label="CloudWatch" sublabel="Metrics / Logs"/>
+      <Arrow x1={690} y1={246} x2={690} y2={286} color={C.security+"55"} dashed/>
+      <text x={W-20} y={H-8} textAnchor="end" fontSize={8} fill="rgba(255,255,255,0.2)">AWS Architecture Diagram</text>
+    </svg>
+  );
+}
+function DiagramIot({ answers }) {
+  const ing=answers.ingestion||"iot-core", proc=answers.processing||"kinesis-analytics", stor=answers.storage||"timestream";
+  const W=760,H=420;
+  const ingLabel=ing==="iot-core"?"IoT Core (MQTT)":ing==="kinesis"?"Kinesis Streams":"API Gateway";
+  const procLabel=proc==="kinesis-analytics"?"Kinesis Analytics":proc==="lambda-stream"?"Lambda Stream":"IoT Rules Engine";
+  const storLabel=stor==="timestream"?"Timestream":stor==="s3-parquet"?"S3 + Parquet":"DynamoDB";
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{display:"block"}}>
+      <CloudBoundary x={10} y={10} w={W-20} h={H-20}/>
+      <text x={30} y={32} fontSize={10} fill="rgba(255,165,0,0.5)" fontWeight="700">AWS Cloud — IoT / Streaming</text>
+      {[60,120,180].map((y,i)=><ServiceBox key={i} x={20} y={y} w={90} h={46} color={C.iot} icon="📡" label={`Device ${i+1}`} sublabel="Sensor / Edge"/>)}
+      {[60,120,180].map((y,i)=><Arrow key={i} x1={110} y1={y+23} x2={155} y2={165} color={C.iot+"66"}/>)}
+      <ServiceBox x={145} y={140} w={150} h={52} color={C.iot} icon={ing==="iot-core"?"📡":ing==="kinesis"?"🌊":"⚡"} label={ingLabel} sublabel="Device Gateway"/>
+      <VpcBox x={30} y={216} w={W-60} h={175} label="VPC"/>
+      <Arrow x1={295} y1={166} x2={355} y2={166} color="rgba(255,255,255,0.3)"/>
+      <ServiceBox x={335} y={140} w={150} h={52} color={C.compute} icon={proc==="kinesis-analytics"?"⚡":proc==="lambda-stream"?"λ":"⚙"} label={procLabel} sublabel="Real-time Processing"/>
+      <Arrow x1={485} y1={152} x2={540} y2={130} color={C.db+"99"}/>
+      <Arrow x1={485} y1={175} x2={540} y2={200} color={C.storage+"99"}/>
+      <ServiceBox x={535} y={108} w={155} h={48} color={C.db} icon={stor==="timestream"?"⏱":stor==="s3-parquet"?"📦":"⚡"} label={storLabel} sublabel="Time-series Store"/>
+      <ServiceBox x={535} y={180} w={155} h={48} color={C.storage} icon="📦" label="S3 Archive" sublabel="Long-term / Parquet"/>
+      <Arrow x1={612} y1={228} x2={612} y2={256} color="rgba(255,255,255,0.2)" dashed/>
+      <ServiceBox x={535} y={256} w={155} h={48} color={C.cdn} icon="🔍" label="Athena / QuickSight" sublabel="Analytics"/>
+      <Arrow x1={220} y1={192} x2={130} y2={248} color={C.security+"66"} dashed/>
+      <ServiceBox x={50} y={248} w={130} h={48} color={C.security} icon="🔔" label="SNS Alert" sublabel="Anomaly Detection"/>
+      <ServiceBox x={50} y={320} w={130} h={48} color={C.user} icon="📊" label="Dashboard" sublabel="Operators"/>
+      <Arrow x1={115} y1={296} x2={115} y2={320} color="rgba(255,255,255,0.2)"/>
+      <text x={W-20} y={H-8} textAnchor="end" fontSize={8} fill="rgba(255,255,255,0.2)">AWS Architecture Diagram</text>
+    </svg>
+  );
+}
+function ArchitectureDiagram({ systemType, answers }) {
+  const map={web:DiagramWeb,api:DiagramApi,data:DiagramData,batch:DiagramBatch,microservice:DiagramMicroservice,iot:DiagramIot};
+  const Diagram=map[systemType]; if(!Diagram)return null;
+  return (
+    <div style={{background:"rgba(2,8,23,0.85)",border:"1px solid rgba(0,102,204,0.35)",borderRadius:10,padding:"16px 14px 10px",overflow:"hidden"}}>
+      <div style={{borderRadius:6,overflow:"hidden",background:"rgba(0,0,0,0.3)"}}>
+        <Diagram answers={answers}/>
+      </div>
+      <div style={{fontSize:10,color:"rgba(255,255,255,0.2)",marginTop:8,textAlign:"right"}}>※ 概略図。実際の構成はより詳細な設計が必要です。</div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════
+// COST ESTIMATOR
+// ════════════════════════════════════════════════════════════════
+const COST_DATA = {
+  web: (a) => {
+    const base = a.frontend==="ssr" ? [15000,50000] : [3000,15000];
+    const compute = a.compute==="eks"?[30000,100000]:a.compute==="ecs"?[10000,40000]:a.compute==="ec2"?[8000,35000]:[1000,8000];
+    const db = a.database==="aurora"?[8000,30000]:a.database==="rds"?[5000,20000]:a.database==="dynamodb"?[2000,15000]:[10000,40000];
+    const sec = a.security==="high"?[40000,80000]:a.security==="standard"?[5000,15000]:[0,0];
+    const az = a.az==="3az"?1.5:a.az==="1az"?0.6:1;
+    return { min:Math.round((base[0]+compute[0]+db[0]+sec[0])*az), max:Math.round((base[1]+compute[1]+db[1]+sec[1])*az),
+      breakdown:[
+        {label:"フロントエンド配信", min:Math.round(base[0]*az), max:Math.round(base[1]*az)},
+        {label:"コンピューティング", min:Math.round(compute[0]*az), max:Math.round(compute[1]*az)},
+        {label:"データベース", min:Math.round(db[0]*az), max:Math.round(db[1]*az)},
+        {label:"セキュリティ", min:sec[0], max:sec[1]},
+      ]};
+  },
+  api: (a) => {
+    const compute = a.compute==="ecs"?[10000,40000]:a.compute==="lambda"?[500,5000]:[3000,12000];
+    const db = a.database==="aurora-serverless"?[8000,25000]:a.database==="rds"?[6000,20000]:[2000,12000];
+    const sec = a.security==="iam"?[0,0]:[2000,8000];
+    return { min:compute[0]+db[0]+sec[0], max:compute[1]+db[1]+sec[1],
+      breakdown:[{label:"APIコンピューティング",min:compute[0],max:compute[1]},{label:"データストア",min:db[0],max:db[1]},{label:"認証・セキュリティ",min:sec[0],max:sec[1]}]};
+  },
+  data: (a) => {
+    const ing = a.ingestion==="kinesis"?[15000,50000]:a.ingestion==="dms"?[10000,30000]:[2000,8000];
+    const stor = a.storage==="redshift"?[30000,100000]:a.storage==="lakehouse"?[25000,80000]:[5000,20000];
+    const trans = a.transform==="emr"?[20000,80000]:a.transform==="glue"?[5000,25000]:[1000,6000];
+    const viz = a.viz==="external-bi"?[10000,50000]:a.viz==="quicksight"?[3000,15000]:[1000,5000];
+    return { min:ing[0]+stor[0]+trans[0]+viz[0], max:ing[1]+stor[1]+trans[1]+viz[1],
+      breakdown:[{label:"データ収集",min:ing[0],max:ing[1]},{label:"ストレージ",min:stor[0],max:stor[1]},{label:"ETL/変換",min:trans[0],max:trans[1]},{label:"可視化",min:viz[0],max:viz[1]}]};
+  },
+  batch: (a) => {
+    const compute = a.compute==="batch"?[5000,20000]:a.compute==="glue"?[8000,30000]:a.compute==="ecs-scheduled"?[4000,15000]:[500,5000];
+    const orch = a.orchestration==="mwaa"?[25000,60000]:a.orchestration==="step-functions"?[1000,8000]:[200,1000];
+    return { min:compute[0]+orch[0], max:compute[1]+orch[1],
+      breakdown:[{label:"バッチ実行",min:compute[0],max:compute[1]},{label:"オーケストレーション",min:orch[0],max:orch[1]}]};
+  },
+  microservice: (a) => {
+    const platform = a.platform==="eks"?[50000,150000]:a.platform==="ecs"?[20000,80000]:[5000,30000];
+    const mesh = a.servicemesh==="appmesh"?[5000,20000]:[1000,5000];
+    const obs = a.observability==="datadog"?[30000,100000]:a.observability==="opensource"?[5000,20000]:[2000,8000];
+    return { min:platform[0]+mesh[0]+obs[0], max:platform[1]+mesh[1]+obs[1],
+      breakdown:[{label:"実行プラットフォーム",min:platform[0],max:platform[1]},{label:"サービスメッシュ",min:mesh[0],max:mesh[1]},{label:"可観測性",min:obs[0],max:obs[1]}]};
+  },
+  iot: (a) => {
+    const ing = a.ingestion==="iot-core"?[10000,40000]:a.ingestion==="kinesis"?[15000,50000]:[2000,8000];
+    const proc = a.processing==="kinesis-analytics"?[20000,60000]:[3000,15000];
+    const stor = a.storage==="timestream"?[15000,50000]:a.storage==="s3-parquet"?[3000,15000]:[5000,20000];
+    return { min:ing[0]+proc[0]+stor[0], max:ing[1]+proc[1]+stor[1],
+      breakdown:[{label:"デバイス収集",min:ing[0],max:ing[1]},{label:"ストリーム処理",min:proc[0],max:proc[1]},{label:"データ蓄積",min:stor[0],max:stor[1]}]};
+  },
+};
+
+function fmt(n) { return n>=10000?`${Math.round(n/10000)}万円`:`${n.toLocaleString()}円`; }
+
+function CostPanel({ systemType, answers }) {
+  const fn = COST_DATA[systemType];
+  if(!fn) return null;
+  const { min, max, breakdown } = fn(answers);
+  const maxBar = Math.max(...breakdown.map(b=>b.max));
+  return (
+    <div>
+      <div style={{background:"linear-gradient(135deg,rgba(16,185,129,0.1),rgba(6,182,212,0.1))",border:"1px solid rgba(16,185,129,0.3)",borderRadius:10,padding:"20px 24px",marginBottom:16}}>
+        <div style={{fontSize:11,color:"#10B981",fontWeight:700,letterSpacing:"0.08em",marginBottom:8}}>月額概算コスト（参考値）</div>
+        <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+          <span style={{fontSize:28,fontWeight:800,color:"#fff"}}>{fmt(min)}</span>
+          <span style={{color:"rgba(255,255,255,0.4)",fontSize:14}}>〜</span>
+          <span style={{fontSize:28,fontWeight:800,color:"#fff"}}>{fmt(max)}</span>
+          <span style={{color:"rgba(255,255,255,0.4)",fontSize:12"}}> / 月</span>
+        </div>
+        <div style={{fontSize:11,color:"rgba(255,255,255,0.35)",marginTop:6}}>
+          ※ 東京リージョン・中規模トラフィック想定。実際はAWS Pricing Calculatorで確認してください。
+        </div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {breakdown.map(b=>(
+          <div key={b.label}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+              <span style={{fontSize:12,color:"rgba(255,255,255,0.6)"}}>{b.label}</span>
+              <span style={{fontSize:12,color:"rgba(255,255,255,0.8)",fontFamily:"monospace"}}>{fmt(b.min)} 〜 {fmt(b.max)}</span>
+            </div>
+            <div style={{height:6,background:"rgba(255,255,255,0.06)",borderRadius:3,overflow:"hidden"}}>
+              <div style={{height:"100%",borderRadius:3,background:"linear-gradient(90deg,#10B981,#06B6D4)",width:`${(b.max/maxBar)*100}%`,opacity:0.7}}/>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{marginTop:16,padding:"12px 16px",background:"rgba(255,165,0,0.06)",border:"1px solid rgba(255,165,0,0.2)",borderRadius:8,fontSize:12,color:"rgba(255,200,80,0.8)"}}>
+        💡 コスト削減ヒント: Reserved Instances / Savings Plans で最大72%削減可能。Spot Instancesでバッチ処理コストを最大90%削減できます。
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════
+// CHECKLIST
+// ════════════════════════════════════════════════════════════════
+const CHECKLIST_BASE = [
+  { cat:"可用性・DR", items:[
+    "RTO（目標復旧時間）を定義した",
+    "RPO（目標復旧時点）を定義した",
+    "フェイルオーバー手順をドキュメント化した",
+    "定期的なDR訓練計画を立てた",
+    "バックアップ取得・リストアをテストした",
+  ]},
+  { cat:"セキュリティ", items:[
+    "IAMロールは最小権限原則で設計した",
+    "保管データの暗号化（KMS）を設定した",
+    "転送中データのTLS化を確認した",
+    "セキュリティグループ・NACLをレビューした",
+    "CloudTrailでAPI操作ログを有効化した",
+    "シークレット管理にSecrets Managerを使用する",
+  ]},
+  { cat:"パフォーマンス", items:[
+    "想定ピーク時のレイテンシ要件を定義した",
+    "Auto Scalingのスケールアウト/イン条件を設定した",
+    "キャッシュ戦略（CDN/ElastiCache）を検討した",
+    "DBのスロークエリ監視を設定した",
+    "負荷テスト計画を立てた",
+  ]},
+  { cat:"運用・監視", items:[
+    "CloudWatchアラームを主要メトリクスに設定した",
+    "ログの保管期間と集約先を決定した",
+    "インシデント対応フローを文書化した",
+    "オンコール体制を整備した",
+    "コスト異常検知アラートを設定した",
+  ]},
+  { cat:"コンプライアンス", items:[
+    "適用される法令・規制（個人情報保護法等）を確認した",
+    "データレジデンシー要件を確認した",
+    "監査ログの保管要件を確認した",
+    "脆弱性スキャンの実施計画を立てた",
+  ]},
+];
+
+function ChecklistPanel() {
+  const [checked, setChecked] = useState({});
+  const total = CHECKLIST_BASE.reduce((s,c)=>s+c.items.length,0);
+  const done = Object.values(checked).filter(Boolean).length;
+  const pct = Math.round((done/total)*100);
+  const toggle = (key) => setChecked(p=>({...p,[key]:!p[key]}));
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:20}}>
+        <div style={{flex:1}}>
+          <div style={{height:8,background:"rgba(255,255,255,0.06)",borderRadius:4,overflow:"hidden"}}>
+            <div style={{height:"100%",borderRadius:4,background:pct>=80?"linear-gradient(90deg,#10B981,#06B6D4)":pct>=40?"linear-gradient(90deg,#F59E0B,#F97316)":"linear-gradient(90deg,#EF4444,#EC4899)",width:`${pct}%`,transition:"width 0.3s"}}/>
+          </div>
+        </div>
+        <span style={{fontSize:13,fontWeight:700,color:pct>=80?"#10B981":pct>=40?"#F59E0B":"#EF4444",minWidth:60,textAlign:"right"}}>{done}/{total} 完了</span>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:16}}>
+        {CHECKLIST_BASE.map(cat=>(
+          <div key={cat.cat}>
+            <div style={{fontSize:11,fontWeight:700,color:"rgba(0,180,255,0.7)",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:8}}>{cat.cat}</div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              {cat.items.map(item=>{
+                const key=`${cat.cat}:${item}`;
+                return (
+                  <label key={item} style={{display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer",padding:"8px 10px",borderRadius:6,background:checked[key]?"rgba(16,185,129,0.07)":"rgba(255,255,255,0.02)",border:`1px solid ${checked[key]?"rgba(16,185,129,0.25)":"rgba(255,255,255,0.05)"}`,transition:"all 0.15s"}}>
+                    <input type="checkbox" checked={!!checked[key]} onChange={()=>toggle(key)} style={{marginTop:1,accentColor:"#10B981",flexShrink:0}}/>
+                    <span style={{fontSize:13,color:checked[key]?"rgba(255,255,255,0.4)":"rgba(255,255,255,0.75)",textDecoration:checked[key]?"line-through":"none",lineHeight:1.4}}>{item}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════
+// IAC SNIPPETS
+// ════════════════════════════════════════════════════════════════
+function generateIaC(systemType, answers, tool) {
+  if(tool==="terraform") return generateTerraform(systemType, answers);
+  return generateCDK(systemType, answers);
+}
+
+function generateTerraform(type, a) {
+  const region = a.region==="multi"?"ap-northeast-1":a.region||"ap-northeast-1";
+  const az = a.az||"2az";
+  const azCount = az==="3az"?3:az==="1az"?1:2;
+  const azList = Array.from({length:azCount},(_,i)=>`"${region}${String.fromCharCode(97+i)}"`).join(", ");
+
+  const base = `# ─── Provider & VPC ──────────────────────────────────
+terraform {
+  required_providers {
+    aws = { source = "hashicorp/aws", version = "~> 5.0" }
+  }
+  backend "s3" {
+    bucket = "your-tfstate-bucket"
+    key    = "infra/terraform.tfstate"
+    region = "${region}"
+  }
+}
+
+provider "aws" {
+  region = "${region}"
+}
+
+# VPC
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "~> 5.0"
+
+  name             = "main-vpc"
+  cidr             = "10.0.0.0/16"
+  azs              = [${azList}]
+  private_subnets  = ${JSON.stringify(Array.from({length:azCount},(_,i)=>`10.0.${i+1}.0/24`))}
+  public_subnets   = ${JSON.stringify(Array.from({length:azCount},(_,i)=>`10.0.${i+10}.0/24`))}
+  enable_nat_gateway = true
+  single_nat_gateway = ${azCount===1}
+}\n`;
+
+  const webExtra = type==="web" ? `
+# ─── ALB ──────────────────────────────────────────────
+resource "aws_lb" "main" {
+  name               = "main-alb"
+  internal           = false
+  load_balancer_type = "application"
+  subnets            = module.vpc.public_subnets
+}
+
+# ─── ${a.compute==="lambda"?"Lambda":"ECS"} ─────────────────────────────────
+${a.compute==="lambda"?`resource "aws_lambda_function" "app" {
+  function_name = "app-handler"
+  runtime       = "nodejs20.x"
+  handler       = "index.handler"
+  role          = aws_iam_role.lambda_exec.arn
+  filename      = "lambda.zip"
+
+  environment {
+    variables = {
+      STAGE = "production"
+    }
+  }
+}`:a.compute==="ecs"?`resource "aws_ecs_cluster" "main" {
+  name = "main-cluster"
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
+}
+
+resource "aws_ecs_service" "app" {
+  name            = "app-service"
+  cluster         = aws_ecs_cluster.main.id
+  launch_type     = "FARGATE"
+  desired_count   = ${azCount * 2}
+
+  network_configuration {
+    subnets          = module.vpc.private_subnets
+    assign_public_ip = false
+  }
+}`:``}
+
+# ─── ${a.database==="aurora"?"Aurora":"RDS"} ─────────────────────────────────
+${a.database==="aurora"?`resource "aws_rds_cluster" "main" {
+  cluster_identifier     = "main-aurora"
+  engine                 = "aurora-postgresql"
+  engine_version         = "15.4"
+  database_name          = "appdb"
+  master_username        = "admin"
+  manage_master_user_password = true
+  vpc_security_group_ids = [aws_security_group.db.id]
+  db_subnet_group_name   = aws_db_subnet_group.main.name
+  deletion_protection    = true
+  skip_final_snapshot    = false
+  availability_zones     = [${azList}]
+}
+
+resource "aws_rds_cluster_instance" "main" {
+  count              = ${azCount}
+  cluster_identifier = aws_rds_cluster.main.id
+  instance_class     = "db.r6g.large"
+  engine             = aws_rds_cluster.main.engine
+}`:a.database==="dynamodb"?`resource "aws_dynamodb_table" "main" {
+  name         = "app-table"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+  range_key    = "sk"
+
+  attribute { name = "pk"; type = "S" }
+  attribute { name = "sk"; type = "S" }
+
+  point_in_time_recovery { enabled = true }
+  server_side_encryption { enabled = true }
+}`:``}
+
+# ─── Security ─────────────────────────────────────────
+${a.security!=="basic"?`resource "aws_wafv2_web_acl" "main" {
+  name  = "main-waf"
+  scope = "REGIONAL"
+
+  default_action { allow {} }
+
+  rule {
+    name     = "AWSManagedRulesCommonRuleSet"
+    priority = 1
+    override_action { none {} }
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesCommonRuleSet"
+        vendor_name = "AWS"
+      }
+    }
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "CommonRules"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    metric_name                = "MainWAF"
+    sampled_requests_enabled   = true
+  }
+}`:""}` : "";
+
+  return base + webExtra + `
+# ─── CloudWatch Alarm (例: CPU) ───────────────────────
+resource "aws_cloudwatch_metric_alarm" "high_cpu" {
+  alarm_name          = "high-cpu"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = 300
+  statistic           = "Average"
+  threshold           = 80
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+}
+
+resource "aws_sns_topic" "alerts" {
+  name = "infra-alerts"
+}`;
+}
+
+function generateCDK(type, a) {
+  const region = a.region==="multi"?"ap-northeast-1":a.region||"ap-northeast-1";
+  const az = a.az||"2az";
+  const azCount = az==="3az"?3:az==="1az"?1:2;
+
+  return `import * as cdk from 'aws-cdk-lib';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as ecs from 'aws-cdk-lib/aws-ecs';
+import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+${type==="web"&&a.database==="aurora"?`import * as rds from 'aws-cdk-lib/aws-rds';`:""}
+${type==="web"&&a.database==="dynamodb"?`import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';`:""}
+${type==="web"&&a.security!=="basic"?`import * as wafv2 from 'aws-cdk-lib/aws-wafv2';`:""}
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import { Construct } from 'constructs';
+
+export class AppStack extends cdk.Stack {
+  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+    super(scope, id, {
+      ...props,
+      env: { region: '${region}' },
+    });
+
+    // ─── VPC ───────────────────────────────────────────
+    const vpc = new ec2.Vpc(this, 'MainVpc', {
+      maxAzs: ${azCount},
+      natGateways: ${azCount===1?1:azCount},
+      subnetConfiguration: [
+        { cidrMask: 24, name: 'public',  subnetType: ec2.SubnetType.PUBLIC },
+        { cidrMask: 24, name: 'private', subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      ],
+    });
+
+${type==="web"&&a.compute==="ecs"?`
+    // ─── ECS Fargate ───────────────────────────────────
+    const cluster = new ecs.Cluster(this, 'Cluster', {
+      vpc,
+      containerInsights: true,
+    });
+
+    const taskDef = new ecs.FargateTaskDefinition(this, 'TaskDef', {
+      cpu: 512,
+      memoryLimitMiB: 1024,
+    });
+
+    taskDef.addContainer('AppContainer', {
+      image: ecs.ContainerImage.fromRegistry('your-ecr-image'),
+      portMappings: [{ containerPort: 3000 }],
+      logging: ecs.LogDrivers.awsLogs({ streamPrefix: 'app' }),
+    });
+
+    const service = new ecs.FargateService(this, 'Service', {
+      cluster,
+      taskDefinition: taskDef,
+      desiredCount: ${azCount * 2},
+      assignPublicIp: false,
+    });
+
+    // Auto Scaling
+    const scaling = service.autoScaleTaskCount({ maxCapacity: ${azCount * 6}, minCapacity: ${azCount} });
+    scaling.scaleOnCpuUtilization('CpuScaling', { targetUtilizationPercent: 60 });
+
+    // ALB
+    const alb = new elbv2.ApplicationLoadBalancer(this, 'ALB', {
+      vpc, internetFacing: true,
+    });
+    const listener = alb.addListener('Listener', { port: 443 });
+    listener.addTargets('ECS', {
+      port: 3000,
+      targets: [service],
+      healthCheck: { path: '/health' },
+    });
+`:""}
+${type==="web"&&a.database==="aurora"?`
+    // ─── Aurora Cluster ────────────────────────────────
+    const dbSG = new ec2.SecurityGroup(this, 'DbSG', { vpc });
+    const aurora = new rds.DatabaseCluster(this, 'Aurora', {
+      engine: rds.DatabaseClusterEngine.auroraPostgres({
+        version: rds.AuroraPostgresEngineVersion.VER_15_4,
+      }),
+      writer: rds.ClusterInstance.provisioned('writer', {
+        instanceType: ec2.InstanceType.of(ec2.InstanceClass.R6G, ec2.InstanceSize.LARGE),
+      }),
+      readers: ${azCount>1?`[rds.ClusterInstance.provisioned('reader')]`:`[]`},
+      vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      securityGroups: [dbSG],
+      deletionProtection: true,
+    });
+`:""}
+${type==="web"&&a.database==="dynamodb"?`
+    // ─── DynamoDB ──────────────────────────────────────
+    const table = new dynamodb.Table(this, 'AppTable', {
+      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+      sortKey:      { name: 'sk', type: dynamodb.AttributeType.STRING },
+      billingMode:  dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecovery: true,
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+    });
+`:""}
+
+    // ─── CloudWatch Dashboard ──────────────────────────
+    const dashboard = new cloudwatch.Dashboard(this, 'Dashboard', {
+      dashboardName: 'app-dashboard',
+    });
+
+    // ─── Tags ──────────────────────────────────────────
+    cdk.Tags.of(this).add('Environment', 'production');
+    cdk.Tags.of(this).add('ManagedBy', 'CDK');
+  }
+}`;
+}
+
+function IaCPanel({ systemType, answers }) {
+  const [tool, setTool] = useState("terraform");
+  const [copied, setCopied] = useState(false);
+  const code = generateIaC(systemType, answers, tool);
+
+  const copyCode = () => {
+    navigator.clipboard.writeText(code).then(()=>{
+      setCopied(true); setTimeout(()=>setCopied(false),2000);
+    });
+  };
+
+  return (
+    <div>
+      <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center"}}>
+        <div style={{display:"flex",background:"rgba(255,255,255,0.05)",borderRadius:8,padding:3,border:"1px solid rgba(255,255,255,0.08)"}}>
+          {["terraform","cdk"].map(t=>(
+            <button key={t} onClick={()=>setTool(t)} style={{padding:"6px 18px",borderRadius:6,border:"none",background:tool===t?"rgba(0,102,204,0.5)":"transparent",color:tool===t?"#fff":"rgba(255,255,255,0.4)",cursor:"pointer",fontSize:12,fontWeight:700,transition:"all 0.15s"}}>
+              {t==="terraform"?"Terraform (HCL)":"AWS CDK (TypeScript)"}
+            </button>
+          ))}
+        </div>
+        <button onClick={copyCode} style={{marginLeft:"auto",padding:"7px 14px",borderRadius:6,border:"1px solid rgba(255,255,255,0.12)",background:copied?"rgba(16,185,129,0.2)":"rgba(255,255,255,0.05)",color:copied?"#10B981":"rgba(255,255,255,0.6)",cursor:"pointer",fontSize:12,fontWeight:600,transition:"all 0.2s"}}>
+          {copied?"✓ コピーしました":"📋 コピー"}
+        </button>
+      </div>
+      <div style={{background:"rgba(0,0,0,0.4)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:8,padding:"18px 20px",overflow:"auto",maxHeight:480}}>
+        <pre style={{margin:0,fontSize:11.5,lineHeight:1.7,color:"rgba(255,255,255,0.75)",fontFamily:"'Courier New',monospace",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+          <code>{code}</code>
+        </pre>
+      </div>
+      <div style={{marginTop:12,padding:"10px 14px",background:"rgba(0,102,204,0.07)",border:"1px solid rgba(0,102,204,0.2)",borderRadius:6,fontSize:11,color:"rgba(0,180,255,0.7)"}}>
+        ⚠ このコードはスターター用の骨格です。実際のデプロイ前に変数・IAMポリシー・セキュリティグループを必ずレビューしてください。
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════
+// DATA
+// ════════════════════════════════════════════════════════════════
+const SYSTEM_TYPES = [
+  { id:"web",          icon:"🌐", label:"Webアプリケーション",   desc:"EC サイト、SaaS、社内ポータルなど、ブラウザから利用するシステム",          tags:["フロントエンドあり","ユーザー向け","HTTP通信"] },
+  { id:"api",          icon:"⚡", label:"API バックエンド",       desc:"モバイルアプリ向けAPI、BFF、マイクロサービスのAPIゲートウェイ",            tags:["REST/GraphQL","JSON通信","他システム連携"] },
+  { id:"data",         icon:"📊", label:"データ基盤 / 分析",      desc:"データレイク、DWH、BIダッシュボード、機械学習向けデータ整備",             tags:["大量データ","バッチ/ストリーム","分析・可視化"] },
+  { id:"batch",        icon:"⚙️", label:"バッチ処理システム",      desc:"夜間バッチ、ETLパイプライン、定期レポート生成",                           tags:["定期実行","大量データ処理","非同期"] },
+  { id:"microservice", icon:"🔀", label:"マイクロサービス",        desc:"大規模Webサービス、複数チームで独立デプロイが必要なプラットフォーム",      tags:["独立デプロイ","サービス間通信","複数チーム"] },
+  { id:"iot",          icon:"📡", label:"IoT / ストリーミング",    desc:"センサーデータ収集、リアルタイムイベント処理、ログストリーミング",         tags:["高頻度書き込み","リアルタイム","デバイス連携"] },
+];
+
+const PHASES = {
+  web:[
+    {id:"region",phase:"Phase 1",phaseLabel:"共通基盤",title:"利用リージョン",desc:"サービスのユーザーが主にどこにいるかを基準に選びます。",options:[
+      {id:"ap-northeast-1",label:"東京 (ap-northeast-1)",icon:"🗼",when:"国内ユーザーメイン。レイテンシ最優先。",trade:"国内最安ではない場合あり"},
+      {id:"ap-northeast-3",label:"大阪 (ap-northeast-3)",icon:"🏯",when:"東京のDRサイトとして使用。東京と組み合わせるのが一般的。",trade:"単独では使わず東京と併用"},
+      {id:"us-east-1",label:"バージニア (us-east-1)",icon:"🗽",when:"グローバルサービス、または低コストで検証したい場合。",trade:"国内ユーザーへのレイテンシが高い"},
+      {id:"multi",label:"マルチリージョン",icon:"🌏",when:"高可用性要件 (RTO < 1時間) やグローバル展開が必要な場合。",trade:"コストと運用複雑性が大幅増"},
+    ]},
+    {id:"az",phase:"Phase 1",phaseLabel:"共通基盤",title:"AZ (アベイラビリティーゾーン) 構成",desc:"可用性要件に応じて選択します。本番環境は2AZ以上が推奨です。",options:[
+      {id:"1az",label:"1 AZ",icon:"🟡",when:"開発・検証環境のみ。コスト最小化が最優先の場合。",trade:"単一障害点あり。本番非推奨。"},
+      {id:"2az",label:"2 AZ",icon:"🟢",when:"コストと可用性のバランスを取りたい本番環境。多くのWebサービスに適する。",trade:"同時2AZ障害には対応不可"},
+      {id:"3az",label:"3 AZ",icon:"🔵",when:"金融・医療など高可用性が求められるシステム。SLA 99.99% 以上が必要な場合。",trade:"コストが2AZ比で約1.5倍"},
+    ]},
+    {id:"frontend",phase:"Phase 2",phaseLabel:"フロントエンド",title:"フロントエンド配信方式",desc:"ページの表示方式とホスティング方法を選びます。",options:[
+      {id:"spa",label:"SPA + CloudFront + S3",icon:"⚡",when:"React/Vue/Angular などの静的ファイル。管理画面やSPAに最適。",trade:"SEOが課題。初回ロードが遅い場合あり。"},
+      {id:"ssr",label:"SSR (ECS/EC2 + ALB)",icon:"🔄",when:"SEOが重要なサービス。Eコマースや公開サイト。Next.js/Nuxt.js利用時。",trade:"サーバーコストとスケール設計が必要"},
+      {id:"static",label:"静的サイト (S3 + CloudFront)",icon:"📄",when:"ランディングページ、ドキュメントサイト、更新頻度が低いコンテンツ。",trade:"動的コンテンツは対応不可"},
+    ]},
+    {id:"compute",phase:"Phase 2",phaseLabel:"アプリケーション層",title:"アプリケーション実行環境",desc:"バックエンドのコンピューティング方式を選びます。",options:[
+      {id:"lambda",label:"サーバーレス (Lambda + API Gateway)",icon:"λ",when:"リクエストが不定期・スパイク性。運用負荷を下げたい。小〜中規模サービス。",trade:"コールドスタート問題。長時間処理に不向き。"},
+      {id:"ecs",label:"コンテナ (ECS Fargate)",icon:"🐳",when:"常時起動が必要。コンテナで開発済み。中〜大規模トラフィック。",trade:"最低限の常時稼働コストが発生"},
+      {id:"ec2",label:"EC2 + Auto Scaling",icon:"🖥️",when:"OSレベルのカスタマイズが必要。既存のEC2ベースのシステムを移行する場合。",trade:"AMI管理・パッチ適用などの運用負荷が高い"},
+      {id:"eks",label:"Kubernetes (EKS)",icon:"☸️",when:"Kubernetesで既に運用中。複数チームで共有クラスタを使いたい場合。",trade:"学習コストと運用複雑性が高い"},
+    ]},
+    {id:"database",phase:"Phase 2",phaseLabel:"データベース層",title:"データベース構成",desc:"データの特性とアクセスパターンで選びます。",options:[
+      {id:"aurora",label:"Aurora (MySQL/PostgreSQL互換)",icon:"🗄️",when:"RDB が必要で高可用性・高性能を求める場合。新規構築のRDB用途に最適。",trade:"RDS比でやや高コスト"},
+      {id:"rds",label:"RDS (MySQL/PostgreSQL)",icon:"📦",when:"標準的なRDB。コストを抑えたい中小規模システム。",trade:"Auroraより性能・可用性は低い"},
+      {id:"dynamodb",label:"DynamoDB (NoSQL)",icon:"⚡",when:"アクセスパターンが明確。ミリ秒レスポンスが必要。無制限スケールが求められる場合。",trade:"複雑なJOINクエリには不向き"},
+      {id:"multi-db",label:"複数DB併用",icon:"🔀",when:"RDB + DynamoDB（セッション管理）+ ElastiCache（キャッシュ）など用途別に使い分け。",trade:"運用・整合性管理が複雑化"},
+    ]},
+    {id:"security",phase:"Phase 3",phaseLabel:"セキュリティ",title:"セキュリティ対策レベル",desc:"サービスの公開範囲と扱うデータの機密性に応じて選びます。",options:[
+      {id:"basic",label:"基本構成",icon:"🔒",when:"社内システムや開発環境。外部公開なし。個人情報を扱わない。",trade:"外部脅威への対応は最小限"},
+      {id:"standard",label:"標準構成 (WAF + CloudTrail)",icon:"🛡️",when:"一般的な公開Webサービス。個人情報を扱う。Pマーク・ISMSレベルのコンプライアンスが必要。",trade:"WAFコストが追加発生"},
+      {id:"high",label:"高セキュリティ (WAF + Shield + GuardDuty)",icon:"🔐",when:"金融・医療・行政システム。PCI-DSS / HIPAA / FISC 対応が必要。大規模DDoS対策が必要。",trade:"Shield Advanced は月額$3,000〜"},
+    ]},
+    {id:"cicd",phase:"Phase 3",phaseLabel:"CI/CD & IaC",title:"デプロイ・インフラ管理方式",desc:"チームの技術スタックと運用方針で選びます。",options:[
+      {id:"codepipeline",label:"AWS CodePipeline + CodeBuild",icon:"🔧",when:"AWSサービスに統一したい。外部ツールへの依存を減らしたい。",trade:"他クラウドへの移植性が低い"},
+      {id:"githubactions",label:"GitHub Actions + CDK/Terraform",icon:"🐙",when:"GitHubを既に使っている。マルチクラウド対応が必要。",trade:"GitHub依存が発生"},
+      {id:"terraform",label:"Terraform (IaC) + 既存CI",icon:"🏗️",when:"マルチクラウド・マルチアカウントの統一管理。Terraformの既存資産がある。",trade:"Terraform Cloudなど別途ツールが必要な場合も"},
+    ]},
+  ],
+  api:[
+    {id:"region",phase:"Phase 1",phaseLabel:"共通基盤",title:"利用リージョン",desc:"APIを呼び出すクライアントの所在地を基準に選びます。",options:[
+      {id:"ap-northeast-1",label:"東京 (ap-northeast-1)",icon:"🗼",when:"国内ユーザー・国内モバイルアプリ向け。",trade:"グローバル展開時は追加リージョンが必要"},
+      {id:"multi",label:"マルチリージョン + CloudFront",icon:"🌏",when:"グローバルなモバイルアプリ。世界中どこからでも低レイテンシが必要な場合。",trade:"データ整合性の設計が複雑化"},
+    ]},
+    {id:"compute",phase:"Phase 2",phaseLabel:"API実行環境",title:"APIの実行環境",desc:"リクエスト量・レイテンシ要件・開発スタイルで選びます。",options:[
+      {id:"lambda",label:"Lambda + API Gateway",icon:"λ",when:"スパイクトラフィック対応。運用コスト最小化。リクエスト数課金でよい場合。",trade:"コールドスタート数百ms。タイムアウト上限29秒。"},
+      {id:"ecs",label:"ECS Fargate + ALB",icon:"🐳",when:"常時高トラフィック。長時間処理あり。コンテナイメージで管理したい場合。",trade:"最低稼働コストが発生。スケールに数分かかる。"},
+      {id:"apigw-http",label:"HTTP API (API Gateway v2)",icon:"⚡",when:"シンプルなRESTfulAPI。コスト重視。v1の機能が不要な場合。",trade:"v1と比べ一部機能が制限される"},
+    ]},
+    {id:"database",phase:"Phase 2",phaseLabel:"データベース",title:"データストア",desc:"APIが扱うデータ構造とクエリパターンで選びます。",options:[
+      {id:"dynamodb",label:"DynamoDB",icon:"⚡",when:"スケールアウト優先。アクセスパターンがシンプル。Key-Valueやドキュメント構造。",trade:"複雑な検索・集計には向かない"},
+      {id:"aurora-serverless",label:"Aurora Serverless v2",icon:"🗄️",when:"RDBが必要だが、トラフィックが不定期。Lambdaとの組み合わせに適する。",trade:"起動時にウォームアップが必要"},
+      {id:"rds",label:"RDS + Read Replica",icon:"📦",when:"安定したトラフィックのRDB。Read Replicaで読み取りをスケールアウト。",trade:"書き込みスケールにはシャーディングが必要"},
+    ]},
+    {id:"security",phase:"Phase 3",phaseLabel:"セキュリティ",title:"API認証・セキュリティ",desc:"APIの公開範囲とクライアントの種類で選びます。",options:[
+      {id:"cognito",label:"Amazon Cognito (JWT)",icon:"👤",when:"モバイルアプリ・SPAのユーザー認証。OAuth2/OIDCに準拠したい場合。",trade:"Cognitoのクセに慣れる必要あり"},
+      {id:"apikey",label:"API Key + WAF",icon:"🔑",when:"B2B API。パートナー企業への提供。シンプルな認証で十分な場合。",trade:"細かいスコープ制御が難しい"},
+      {id:"iam",label:"IAM 認証 (Sig v4)",icon:"🔐",when:"AWSサービス間のAPI呼び出し。社内システム間連携。",trade:"AWSクライアント以外からの呼び出しが複雑"},
+    ]},
+    {id:"cicd",phase:"Phase 3",phaseLabel:"CI/CD",title:"デプロイ戦略",desc:"リリース頻度とリスク許容度で選びます。",options:[
+      {id:"canary",label:"カナリアリリース (CodeDeploy)",icon:"🐤",when:"高頻度リリース。一部トラフィックで段階的に検証したい場合。",trade:"設定が複雑。監視体制が必要。"},
+      {id:"bluegreen",label:"ブルー/グリーンデプロイ",icon:"🔵",when:"ダウンタイムゼロが必要。すぐに旧バージョンへロールバックしたい場合。",trade:"一時的に2倍のリソースコストが発生"},
+      {id:"rolling",label:"ローリングアップデート",icon:"🔄",when:"コンテナ環境。ECS/EKSでの標準的なアップデート方式。",trade:"デプロイ中に新旧バージョンが混在"},
+    ]},
+  ],
+  data:[
+    {id:"region",phase:"Phase 1",phaseLabel:"共通基盤",title:"利用リージョン",desc:"データのソース・利用者・コンプライアンス要件に応じて選びます。",options:[
+      {id:"ap-northeast-1",label:"東京 (ap-northeast-1)",icon:"🗼",when:"国内データを扱う。個人情報保護法のデータレジデンシー要件がある。",trade:"米国リージョンよりS3等のコストがやや高い"},
+      {id:"us-east-1",label:"バージニア (us-east-1)",icon:"🗽",when:"グローバルデータ。コスト優先。多くのAWSデータサービスが先行リリースされる。",trade:"国内規制対応が必要な場合は不可"},
+    ]},
+    {id:"ingestion",phase:"Phase 2",phaseLabel:"データ収集層",title:"データ収集方式",desc:"データのソースと転送頻度で選びます。",options:[
+      {id:"s3-batch",label:"S3 + AWS Glue (バッチ)",icon:"📦",when:"日次・時次など定期的なバッチ取り込み。ファイルベースのデータ転送。",trade:"リアルタイム分析には不向き"},
+      {id:"kinesis",label:"Kinesis Data Streams + Firehose",icon:"🌊",when:"ストリーミングデータ。ログ・センサー・クリックストリームのリアルタイム収集。",trade:"シャード管理が必要。コストが高め。"},
+      {id:"dms",label:"AWS DMS (DB移行・CDC)",icon:"🔄",when:"既存RDBからの継続的なデータ連携。Change Data Captureによるリアルタイム同期。",trade:"DMS専用インスタンスのコストが発生"},
+      {id:"appflow",label:"AppFlow (SaaS連携)",icon:"☁️",when:"Salesforce・Marketo・Slackなどのデータをノーコードで取り込む場合。",trade:"対応SaaSが限定される"},
+    ]},
+    {id:"storage",phase:"Phase 2",phaseLabel:"ストレージ層",title:"データストレージ構成",desc:"データ量・分析用途・アクセス頻度で選びます。",options:[
+      {id:"lake",label:"データレイク (S3 + Glue Data Catalog)",icon:"🏞️",when:"様々な形式のRawデータを蓄積。後で加工・分析したい。スキーマを後決めにしたい。",trade:"そのままでは分析が難しい。ETL設計が必要。"},
+      {id:"redshift",label:"DWH (Redshift)",icon:"📊",when:"定型のBIレポート・集計クエリ。構造化データの高速分析。SQL分析者が多い場合。",trade:"クラスター費用が高め。スキーマ変更がコスト高。"},
+      {id:"lakehouse",label:"レイクハウス (S3 + Redshift Spectrum)",icon:"🏠",when:"データレイクとDWHの両方が必要。一元的にSQLで分析したい。",trade:"設計・運用が複雑。コストが高い。"},
+    ]},
+    {id:"transform",phase:"Phase 2",phaseLabel:"変換・加工層",title:"ETL / データ変換",desc:"データ量・変換複雑度・エンジニアのスキルで選びます。",options:[
+      {id:"glue",label:"AWS Glue (サーバーレスSpark)",icon:"🔧",when:"PythonでのETL。サーバー管理不要。中〜大規模バッチ処理。",trade:"コールドスタートあり。デバッグが難しい。"},
+      {id:"emr",label:"EMR (マネージドHadoop/Spark)",icon:"⚡",when:"超大規模データ処理。Spark/Hiveの既存資産がある。細かいチューニングが必要。",trade:"クラスター管理が必要。運用コスト高。"},
+      {id:"lambda-etl",label:"Lambda (軽量変換)",icon:"λ",when:"小規模・シンプルな変換処理。イベント駆動型のデータ加工。",trade:"15分タイムアウト。大規模処理には不向き。"},
+    ]},
+    {id:"viz",phase:"Phase 2",phaseLabel:"可視化層",title:"BIツール・可視化",desc:"分析ユーザーの技術レベルと可視化要件で選びます。",options:[
+      {id:"quicksight",label:"Amazon QuickSight",icon:"📈",when:"AWSネイティブで完結させたい。ノーコードでダッシュボードを作りたい。",trade:"Tableauなど高機能BIと比べ表現力が限られる"},
+      {id:"athena",label:"Athena (アドホック分析)",icon:"🔍",when:"SQLエンジニアがS3上のデータを直接クエリしたい。都度分析。",trade:"可視化機能なし。QuickSightなどと組み合わせが必要。"},
+      {id:"external-bi",label:"外部BIツール (Tableau/Looker等)",icon:"🎨",when:"既存のBIツールがある。高度な可視化・ドリルダウンが必要。",trade:"別途ライセンスコスト。AWS外部への接続設定が必要。"},
+    ]},
+  ],
+  batch:[
+    {id:"region",phase:"Phase 1",phaseLabel:"共通基盤",title:"利用リージョン",desc:"処理するデータの所在地に合わせます。",options:[
+      {id:"ap-northeast-1",label:"東京 (ap-northeast-1)",icon:"🗼",when:"国内DBや社内システムのデータを処理。",trade:"他リージョンよりコストが高い場合あり"},
+      {id:"us-east-1",label:"バージニア (us-east-1)",icon:"🗽",when:"コスト最優先。Spot Instanceを安く使いたい。",trade:"国内規制対応が必要な場合は不可"},
+    ]},
+    {id:"compute",phase:"Phase 2",phaseLabel:"実行環境",title:"バッチ実行環境",desc:"処理時間・データ量・管理コストで選びます。",options:[
+      {id:"batch",label:"AWS Batch",icon:"📦",when:"大規模・長時間バッチ。Spot Instanceで低コスト化したい。",trade:"ジョブ起動に数分かかる場合あり"},
+      {id:"lambda",label:"Lambda (Step Functions)",icon:"λ",when:"処理時間15分以内。イベント駆動型。軽量な分散バッチ処理。",trade:"15分制限。大量データには不向き。"},
+      {id:"ecs-scheduled",label:"ECS + EventBridge (定期実行)",icon:"⏰",when:"コンテナで処理を実装。定時実行。Lambdaの時間制限を超える処理。",trade:"タスク起動時間がかかる。最低限のコストが発生。"},
+      {id:"glue",label:"AWS Glue (ETLバッチ)",icon:"🔧",when:"データ変換・移行処理。Sparkによる並列処理。サーバーレスで管理不要。",trade:"コールドスタートあり。コストがやや高め。"},
+    ]},
+    {id:"orchestration",phase:"Phase 2",phaseLabel:"オーケストレーション",title:"ジョブ管理・オーケストレーション",desc:"ジョブの依存関係の複雑さと運用体制で選びます。",options:[
+      {id:"step-functions",label:"Step Functions",icon:"🔀",when:"複雑なジョブフロー。エラーハンドリング・リトライを細かく制御したい。",trade:"状態遷移数によってコスト増加"},
+      {id:"eventbridge",label:"EventBridge Scheduler (シンプル定期実行)",icon:"⏰",when:"単純なCronジョブ。依存関係なし。1つのジョブを定期実行するだけでよい。",trade:"複雑な依存関係の表現が難しい"},
+      {id:"mwaa",label:"Amazon MWAA (Apache Airflow)",icon:"🌬️",when:"複雑なDAGワークフロー。Airflowの既存資産がある。",trade:"環境コストが固定で高め (最低$200/月〜)"},
+    ]},
+    {id:"security",phase:"Phase 3",phaseLabel:"セキュリティ",title:"セキュリティ・コンプライアンス",desc:"処理するデータの機密性に応じて選びます。",options:[
+      {id:"basic",label:"基本 (IAMロール + VPC内処理)",icon:"🔒",when:"社内データのみ。外部公開なし。基本的な権限分離で十分。",trade:"高度な監査・証跡管理はなし"},
+      {id:"standard",label:"標準 (KMS暗号化 + CloudTrail)",icon:"🛡️",when:"個人情報・機密データを処理。監査ログが必要。",trade:"KMS呼び出し費用が発生"},
+    ]},
+  ],
+  microservice:[
+    {id:"region",phase:"Phase 1",phaseLabel:"共通基盤",title:"利用リージョン",desc:"サービス全体のユーザー所在地と可用性要件で選びます。",options:[
+      {id:"ap-northeast-1",label:"東京 (ap-northeast-1)",icon:"🗼",when:"国内ユーザー主体。",trade:"DR構成は大阪リージョンの追加が必要"},
+      {id:"multi",label:"東京 + 大阪 (マルチリージョン)",icon:"🌏",when:"高可用性要件。リージョン障害対応。金融・公共サービス。",trade:"コストと運用複雑性が大幅増"},
+    ]},
+    {id:"platform",phase:"Phase 2",phaseLabel:"実行基盤",title:"サービス実行プラットフォーム",desc:"チームの規模・Kubernetesの習熟度・サービス数で選びます。",options:[
+      {id:"eks",label:"EKS (Kubernetes)",icon:"☸️",when:"10サービス以上。Kubernetes習熟チームがある。マルチクラウド対応を見据える。",trade:"学習コストが高い。クラスター管理が複雑。"},
+      {id:"ecs",label:"ECS Fargate",icon:"🐳",when:"AWS完結で管理を楽にしたい。中規模マイクロサービス。",trade:"Kubernetesエコシステムが使えない"},
+      {id:"lambda",label:"Lambda (マイクロ関数)",icon:"λ",when:"各サービスが軽量。イベント駆動型。スパイクトラフィック対応。",trade:"コールドスタート。複雑なサービスには不向き。"},
+    ]},
+    {id:"servicemesh",phase:"Phase 2",phaseLabel:"サービス間通信",title:"サービスメッシュ・通信方式",desc:"サービス間の通信量と可観測性要件で選びます。",options:[
+      {id:"alb",label:"ALB + サービスディスカバリ",icon:"⚖️",when:"シンプルな構成。サービス数が少ない。",trade:"細かいトラフィック制御・可観測性が限定的"},
+      {id:"appmesh",label:"AWS App Mesh (Envoy)",icon:"🕸️",when:"サービス間の通信を細かく制御したい。分散トレーシングが必要。",trade:"Envoyサイドカーのオーバーヘッド"},
+      {id:"eventbridge-async",label:"EventBridge / SQS (非同期)",icon:"📨",when:"疎結合なイベント駆動アーキテクチャ。サービス間の直接依存を排除したい。",trade:"結果整合性。デバッグが難しい。"},
+    ]},
+    {id:"database",phase:"Phase 2",phaseLabel:"データ管理",title:"データ管理戦略",desc:"マイクロサービスのDBは「サービスごとに独立」が原則です。",options:[
+      {id:"per-service",label:"サービスごとの独立DB",icon:"🔀",when:"マイクロサービスの原則に従う。独立したスケールが必要。",trade:"データ整合性の設計が複雑化。JOINができない。"},
+      {id:"shared",label:"共有DB (移行期・スモールスタート)",icon:"📦",when:"モノリスからの段階的移行中。チームが小さい。",trade:"スキーマ変更が全サービスに影響する"},
+    ]},
+    {id:"observability",phase:"Phase 3",phaseLabel:"可観測性",title:"監視・トレーシング",desc:"分散システムの可観測性は特に重要です。",options:[
+      {id:"xray",label:"X-Ray + CloudWatch",icon:"🔍",when:"AWSネイティブで完結。分散トレーシングを手軽に導入したい。",trade:"外部ツールと比べ高度な分析が限定的"},
+      {id:"opensource",label:"OpenTelemetry + Grafana/Prometheus",icon:"📊",when:"ベンダー中立な可観測性を実現したい。Grafanaに慣れたチームがある。",trade:"インフラ構築・運用コストが発生"},
+      {id:"datadog",label:"Datadog / New Relic (外部APM)",icon:"🐕",when:"高機能なAPMが必要。アラート・ダッシュボードを素早く整備したい。",trade:"ライセンスコストが高い"},
+    ]},
+  ],
+  iot:[
+    {id:"region",phase:"Phase 1",phaseLabel:"共通基盤",title:"利用リージョン",desc:"デバイスの所在地と規制要件で選びます。",options:[
+      {id:"ap-northeast-1",label:"東京 (ap-northeast-1)",icon:"🗼",when:"国内デバイス。工場・インフラ系IoT。データレジデンシー要件あり。",trade:"他リージョンよりコスト高"},
+      {id:"multi",label:"マルチリージョン",icon:"🌏",when:"グローバルにデバイスが分散。地域ごとのデータ処理が必要。",trade:"設計が複雑化。コスト増。"},
+    ]},
+    {id:"ingestion",phase:"Phase 2",phaseLabel:"データ収集",title:"デバイス接続・データ収集方式",desc:"デバイス数・プロトコル・送信頻度で選びます。",options:[
+      {id:"iot-core",label:"AWS IoT Core (MQTT)",icon:"📡",when:"大量デバイスの接続管理。MQTT/HTTPSプロトコル。デバイス認証・セキュリティが必要。",trade:"デバイスSDKの組み込みが必要"},
+      {id:"kinesis",label:"Kinesis Data Streams (高頻度)",icon:"🌊",when:"高頻度・大量データのストリーミング。既にHTTPS送信が実装済み。",trade:"デバイス認証管理は別途必要"},
+      {id:"api-gw",label:"API Gateway + Lambda (シンプル)",icon:"⚡",when:"デバイス数が少ない。既存のHTTPS実装がある。シンプルに始めたい。",trade:"大量デバイス対応のスケールは別途設計が必要"},
+    ]},
+    {id:"processing",phase:"Phase 2",phaseLabel:"リアルタイム処理",title:"ストリーム処理方式",desc:"リアルタイム性の要件と処理の複雑さで選びます。",options:[
+      {id:"kinesis-analytics",label:"Kinesis Data Analytics (Flink)",icon:"⚡",when:"ウィンドウ集計・異常検知など複雑なリアルタイム処理。",trade:"学習コストが高い。コストが高め。"},
+      {id:"lambda-stream",label:"Lambda (Kinesis Trigger)",icon:"λ",when:"シンプルなストリーム処理。イベントごとの処理で十分。",trade:"15分タイムアウト。ウィンドウ処理が難しい。"},
+      {id:"iot-rules",label:"IoT Rules Engine",icon:"⚙️",when:"IoT Coreからのデータルーティング。条件付きアクション。",trade:"複雑な処理ロジックには不向き"},
+    ]},
+    {id:"storage",phase:"Phase 2",phaseLabel:"データ蓄積",title:"時系列データ保存",desc:"データの利用目的（分析 vs リアルタイム参照）で選びます。",options:[
+      {id:"timestream",label:"Amazon Timestream (時系列DB)",icon:"⏱️",when:"時系列データの高速クエリ。自動データティアリング。センサーデータの分析。",trade:"コストが高め。クエリ言語が独自。"},
+      {id:"s3-parquet",label:"S3 + Parquet (長期保存・分析)",icon:"📦",when:"低コストで大量データを長期保存。Athenaで分析したい。",trade:"リアルタイムクエリには不向き"},
+      {id:"dynamodb-iot",label:"DynamoDB (最新状態管理)",icon:"⚡",when:"デバイスの最新状態のみ保持。ミリ秒レスポンスで状態を参照したい。",trade:"時系列での履歴分析には不向き"},
+    ]},
+    {id:"security",phase:"Phase 3",phaseLabel:"セキュリティ",title:"デバイス認証・セキュリティ",desc:"デバイスの物理的セキュリティリスクと規制要件で選びます。",options:[
+      {id:"x509",label:"X.509証明書 (IoT Core)",icon:"🔐",when:"高いセキュリティが必要な産業用IoT。デバイス単位の認証・失効管理が必要。",trade:"証明書管理の仕組みが必要"},
+      {id:"cognito-iot",label:"Cognito + API Key",icon:"🔑",when:"消費者向けデバイス。ユーザーとデバイスをひも付けたい。",trade:"デバイス紛失時の失効管理が必要"},
+    ]},
+  ],
+};
+
+// ════════════════════════════════════════════════════════════════
+// SUMMARY TEXT
+// ════════════════════════════════════════════════════════════════
+function generateSummaryText(systemType, answers) {
+  const typeLabel = SYSTEM_TYPES.find(s=>s.id===systemType)?.label||systemType;
+  const lines=[`**システム種別**: ${typeLabel}`,``];
+  const phaseMap={};
+  (PHASES[systemType]||[]).forEach(q=>{
+    const a=answers[q.id]; if(!a)return;
+    const opt=q.options.find(o=>o.id===a);
+    if(!phaseMap[q.phase])phaseMap[q.phase]=[];
+    phaseMap[q.phase].push({phase:q.phaseLabel,title:q.title,chosen:opt?.label||a,icon:opt?.icon||"•",trade:opt?.trade});
+  });
+  Object.entries(phaseMap).forEach(([phase,items])=>{
+    lines.push(`### ${phase}`);
+    items.forEach(i=>{ lines.push(`- **${i.title}**: ${i.icon} ${i.chosen}`); if(i.trade)lines.push(`  - ⚠️ ${i.trade}`); });
+    lines.push(``);
+  });
+  lines.push(`### 📋 次のアクション`);
+  ["AWS Pricing Calculator でコスト見積もり","非機能要件 (RTO/RPO/SLA) の確定","IAMポリシー・暗号化設計のセキュリティレビュー","構成図 (draw.io / AWS Architecture Icons) の詳細化","PoC / プロトタイプの実施"].forEach(a=>lines.push(`- [ ] ${a}`));
+  return lines.join("\n");
+}
+
+// ════════════════════════════════════════════════════════════════
+// UI COMPONENTS
+// ════════════════════════════════════════════════════════════════
+function ProgressBar({ phases, currentPhaseIndex, completedPhases }) {
+  const unique=[...new Set(phases.map(p=>p.phase))];
+  return (
+    <div style={{display:"flex",gap:4,marginBottom:32}}>
+      {unique.map((p,i)=>{
+        const done=completedPhases.includes(p),active=i===currentPhaseIndex;
+        return (
+          <div key={p} style={{flex:1,display:"flex",flexDirection:"column",gap:4}}>
+            <div style={{height:4,borderRadius:2,background:done?"#00d9ff":active?"#0066cc":"rgba(255,255,255,0.1)",transition:"all 0.4s",boxShadow:done?"0 0 8px #00d9ff88":active?"0 0 8px #0066cc88":"none"}}/>
+            <div style={{fontSize:10,textAlign:"center",color:done?"#00d9ff":active?"#88aaff":"rgba(255,255,255,0.3)"}}>{p}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+function OptionCard({ opt, selected, onClick }) {
+  return (
+    <div onClick={onClick} style={{cursor:"pointer",padding:"18px 22px",borderRadius:12,border:selected?"2px solid #00d9ff":"2px solid rgba(255,255,255,0.08)",background:selected?"linear-gradient(135deg,rgba(0,217,255,0.12),rgba(0,102,204,0.12))":"rgba(255,255,255,0.03)",transition:"all 0.2s",transform:selected?"scale(1.01)":"scale(1)",boxShadow:selected?"0 0 20px rgba(0,217,255,0.2)":"none",position:"relative"}}>
+      {selected&&<div style={{position:"absolute",top:10,right:12,width:20,height:20,borderRadius:"50%",background:"#00d9ff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"#0a0f1e"}}>✓</div>}
+      <div style={{display:"flex",alignItems:"flex-start",gap:12}}>
+        <div style={{fontSize:26,lineHeight:1,minWidth:32}}>{opt.icon}</div>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:"'Courier New',monospace",fontSize:14,fontWeight:700,color:selected?"#00d9ff":"#e8eaf0",marginBottom:5}}>{opt.label}</div>
+          <div style={{fontSize:12,color:"rgba(255,255,255,0.6)",lineHeight:1.6,marginBottom:opt.trade?8:0}}>
+            <span style={{color:"#7ec8e3",fontWeight:600}}>✓ 適切な場合: </span>{opt.when}
+          </div>
+          {opt.trade&&<div style={{fontSize:11,color:"rgba(255,180,80,0.8)",lineHeight:1.5,padding:"5px 10px",borderRadius:6,background:"rgba(255,150,0,0.07)",borderLeft:"2px solid rgba(255,150,0,0.4)"}}><span style={{fontWeight:600}}>⚠ トレードオフ: </span>{opt.trade}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════
+// MAIN APP
+// ════════════════════════════════════════════════════════════════
+export default function App() {
+  const [step, setStep] = useState("select");
+  const [systemType, setSystemType] = useState(null);
+  const [currentQ, setCurrentQ] = useState(0);
+  const [answers, setAnswers] = useState({});
+  const [hoveredType, setHoveredType] = useState(null);
+  const [activeTab, setActiveTab] = useState("diagram");
+  const [shareMsg, setShareMsg] = useState("");
+
+  // URL hash state sync
+  useEffect(() => {
+    const hash = window.location.hash.slice(1);
+    if(!hash) return;
+    try {
+      const state = JSON.parse(decodeURIComponent(hash));
+      if(state.systemType && state.answers) {
+        setSystemType(state.systemType);
+        setAnswers(state.answers);
+        setStep("summary");
+      }
+    } catch {}
+  }, []);
+
+  const saveToUrl = useCallback(() => {
+    const state = JSON.stringify({ systemType, answers });
+    window.history.replaceState(null,"",`#${encodeURIComponent(state)}`);
+    navigator.clipboard.writeText(window.location.href).then(()=>{
+      setShareMsg("URLをコピーしました！"); setTimeout(()=>setShareMsg(""),2500);
+    });
+  }, [systemType, answers]);
+
+  const questions = systemType ? PHASES[systemType]||[] : [];
+  const q = questions[currentQ];
+  const uniquePhases = [...new Set(questions.map(p=>p.phase))];
+  const currentPhaseIndex = uniquePhases.indexOf(q?.phase);
+  const completedPhases = uniquePhases.filter((_,i)=>i<currentPhaseIndex);
+
+  const TABS = [
+    { id:"diagram",   label:"📐 構成図" },
+    { id:"cost",      label:"💰 コスト概算" },
+    { id:"checklist", label:"✅ チェックリスト" },
+    { id:"iac",       label:"🏗 IaC スニペット" },
+    { id:"summary",   label:"📋 サマリー" },
+  ];
+
+  const summaryText = step==="summary" ? generateSummaryText(systemType, answers) : "";
+  const summaryLines = summaryText.split("\n");
+
+  function handleSelect(id) { setAnswers(p=>({...p,[q.id]:id})); }
+  function handleNext() { if(currentQ<questions.length-1) setCurrentQ(p=>p+1); else setStep("summary"); }
+  function handleBack() { if(currentQ>0) setCurrentQ(p=>p-1); else { setStep("select"); setSystemType(null); setAnswers({}); setCurrentQ(0); }}
+  function handleRestart() { setStep("select"); setSystemType(null); setAnswers({}); setCurrentQ(0); setActiveTab("diagram"); window.history.replaceState(null,"","#"); }
+
+  const s = { root:{ minHeight:"100vh", background:"linear-gradient(135deg,#020817 0%,#0a1628 40%,#0d1f3c 100%)", fontFamily:"'Segoe UI',system-ui,sans-serif", color:"#e8eaf0" }, inner:{ maxWidth:860, margin:"0 auto", padding:"36px 20px 80px" } };
+
+  return (
+    <div style={s.root}>
+      <div style={s.inner}>
+
+        {/* Header */}
+        <div style={{marginBottom:44,textAlign:"center"}}>
+          <div style={{display:"inline-flex",alignItems:"center",gap:10,background:"rgba(0,102,204,0.15)",border:"1px solid rgba(0,102,204,0.3)",borderRadius:100,padding:"6px 18px",marginBottom:18}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:"#00d9ff",boxShadow:"0 0 8px #00d9ff"}}/>
+            <span style={{fontSize:11,letterSpacing:"0.12em",color:"#7ec8e3",textTransform:"uppercase"}}>AWS Architecture Guide</span>
+          </div>
+          <h1 style={{margin:0,fontSize:"clamp(20px,4vw,30px)",fontWeight:800,background:"linear-gradient(90deg,#ffffff,#7ec8e3)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1.2}}>AWSアーキテクチャ設計ガイド</h1>
+          <p style={{color:"rgba(255,255,255,0.4)",fontSize:13,marginTop:8}}>質問に答えるだけで、構成図・コスト概算・IaCコードが生成されます</p>
+        </div>
+
+        {/* ── Phase 0: System Select ── */}
+        {step==="select"&&(
+          <div>
+            <div style={{marginBottom:24}}>
+              <div style={{fontSize:11,letterSpacing:"0.12em",color:"#0066cc",textTransform:"uppercase",marginBottom:6,fontWeight:700}}>Phase 0</div>
+              <h2 style={{margin:0,fontSize:20,fontWeight:700,color:"#fff"}}>システム種別を選択してください</h2>
+              <p style={{color:"rgba(255,255,255,0.45)",fontSize:13,marginTop:6}}>構築するシステムの特性に最も近いものを選んでください。</p>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))",gap:12}}>
+              {SYSTEM_TYPES.map(s=>(
+                <div key={s.id} onClick={()=>{ setSystemType(s.id); setStep("guide"); }}
+                  onMouseEnter={()=>setHoveredType(s.id)} onMouseLeave={()=>setHoveredType(null)}
+                  style={{cursor:"pointer",padding:"20px 18px",borderRadius:14,border:hoveredType===s.id?"2px solid rgba(0,217,255,0.5)":"2px solid rgba(255,255,255,0.07)",background:hoveredType===s.id?"rgba(0,102,204,0.12)":"rgba(255,255,255,0.03)",transition:"all 0.2s",transform:hoveredType===s.id?"translateY(-3px)":"none",boxShadow:hoveredType===s.id?"0 8px 24px rgba(0,102,204,0.2)":"none"}}>
+                  <div style={{fontSize:30,marginBottom:10}}>{s.icon}</div>
+                  <div style={{fontWeight:700,fontSize:14,color:"#fff",marginBottom:5}}>{s.label}</div>
+                  <div style={{fontSize:12,color:"rgba(255,255,255,0.5)",lineHeight:1.5,marginBottom:10}}>{s.desc}</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                    {s.tags.map(t=><span key={t} style={{fontSize:10,padding:"2px 8px",borderRadius:100,background:"rgba(0,102,204,0.15)",color:"#7ec8e3",border:"1px solid rgba(0,102,204,0.2)"}}>{t}</span>)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Questions ── */}
+        {step==="guide"&&q&&(
+          <div>
+            <ProgressBar phases={questions} currentPhaseIndex={currentPhaseIndex} completedPhases={completedPhases}/>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:11,letterSpacing:"0.1em",color:"#0066cc",textTransform:"uppercase",fontWeight:700,background:"rgba(0,102,204,0.12)",padding:"3px 10px",borderRadius:100,border:"1px solid rgba(0,102,204,0.25)"}}>{q.phase}</span>
+                <span style={{fontSize:12,color:"rgba(255,255,255,0.4)"}}>{q.phaseLabel}</span>
+              </div>
+              <span style={{fontSize:12,color:"rgba(255,255,255,0.4)",fontFamily:"monospace"}}>{currentQ+1} / {questions.length}</span>
+            </div>
+            <div style={{height:2,background:"rgba(255,255,255,0.06)",borderRadius:1,marginBottom:22}}>
+              <div style={{height:"100%",borderRadius:1,width:`${((currentQ+1)/questions.length)*100}%`,background:"linear-gradient(90deg,#0066cc,#00d9ff)",transition:"width 0.4s"}}/>
+            </div>
+            <h2 style={{margin:"0 0 5px",fontSize:20,fontWeight:700,color:"#fff"}}>{q.title}</h2>
+            <p style={{color:"rgba(255,255,255,0.5)",fontSize:13,marginBottom:22,lineHeight:1.6}}>{q.desc}</p>
+            <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:28}}>
+              {q.options.map(opt=><OptionCard key={opt.id} opt={opt} selected={answers[q.id]===opt.id} onClick={()=>handleSelect(opt.id)}/>)}
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={handleBack} style={{padding:"11px 22px",borderRadius:8,border:"1px solid rgba(255,255,255,0.12)",background:"rgba(255,255,255,0.05)",color:"rgba(255,255,255,0.6)",cursor:"pointer",fontSize:13,fontWeight:600}}>← 戻る</button>
+              <button onClick={handleNext} disabled={!answers[q.id]} style={{flex:1,padding:"11px 22px",borderRadius:8,border:"none",background:answers[q.id]?"linear-gradient(90deg,#0066cc,#0088ff)":"rgba(255,255,255,0.07)",color:answers[q.id]?"#fff":"rgba(255,255,255,0.3)",cursor:answers[q.id]?"pointer":"not-allowed",fontSize:13,fontWeight:700,boxShadow:answers[q.id]?"0 4px 16px rgba(0,102,204,0.4)":"none"}}>
+                {currentQ===questions.length-1?"✨ 結果を生成":"次へ →"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Summary (tabbed) ── */}
+        {step==="summary"&&(
+          <div>
+            {/* Banner */}
+            <div style={{padding:"20px 24px",borderRadius:12,background:"rgba(0,217,255,0.06)",border:"1px solid rgba(0,217,255,0.2)",marginBottom:20,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
+              <div style={{display:"flex",alignItems:"center",gap:14}}>
+                <div style={{fontSize:32}}>🏗️</div>
+                <div>
+                  <div style={{fontSize:16,fontWeight:800,color:"#fff"}}>アーキテクチャが確定しました</div>
+                  <div style={{fontSize:12,color:"rgba(255,255,255,0.5)",marginTop:3}}>{SYSTEM_TYPES.find(s=>s.id===systemType)?.label} — {questions.length}項目完了</div>
+                </div>
+              </div>
+              <button onClick={saveToUrl} style={{padding:"8px 16px",borderRadius:8,border:"1px solid rgba(0,217,255,0.3)",background:"rgba(0,217,255,0.08)",color:"#00d9ff",cursor:"pointer",fontSize:12,fontWeight:600,flexShrink:0}}>
+                🔗 URLをシェア
+              </button>
+            </div>
+            {shareMsg&&<div style={{padding:"8px 14px",borderRadius:6,background:"rgba(16,185,129,0.12)",border:"1px solid rgba(16,185,129,0.3)",color:"#10B981",fontSize:12,marginBottom:12,textAlign:"center"}}>{shareMsg}</div>}
+
+            {/* Tabs */}
+            <div style={{display:"flex",gap:4,marginBottom:20,overflowX:"auto",paddingBottom:2}}>
+              {TABS.map(t=>(
+                <button key={t.id} onClick={()=>setActiveTab(t.id)}
+                  style={{padding:"8px 14px",borderRadius:8,border:activeTab===t.id?"1px solid rgba(0,102,204,0.5)":"1px solid rgba(255,255,255,0.07)",background:activeTab===t.id?"rgba(0,102,204,0.2)":"rgba(255,255,255,0.03)",color:activeTab===t.id?"#fff":"rgba(255,255,255,0.45)",cursor:"pointer",fontSize:12,fontWeight:activeTab===t.id?700:400,whiteSpace:"nowrap",transition:"all 0.15s"}}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab content */}
+            <div style={{marginBottom:24}}>
+              {activeTab==="diagram"&&<ArchitectureDiagram systemType={systemType} answers={answers}/>}
+              {activeTab==="cost"&&<CostPanel systemType={systemType} answers={answers}/>}
+              {activeTab==="checklist"&&<ChecklistPanel/>}
+              {activeTab==="iac"&&<IaCPanel systemType={systemType} answers={answers}/>}
+              {activeTab==="summary"&&(
+                <div>
+                  <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:"24px 28px",marginBottom:20,fontFamily:"'Courier New',monospace",fontSize:12.5,lineHeight:1.9,color:"rgba(255,255,255,0.8)"}}>
+                    {summaryLines.map((line,i)=>{
+                      if(line.startsWith("**"))return<div key={i} style={{fontSize:15,fontWeight:800,color:"#fff",marginBottom:10}}>{line.replace(/\*\*/g,"")}</div>;
+                      if(line.startsWith("### "))return<div key={i} style={{fontSize:13,fontWeight:700,color:"#00d9ff",marginTop:14,marginBottom:5,borderBottom:"1px solid rgba(0,217,255,0.12)",paddingBottom:3}}>{line.replace("### ","")}</div>;
+                      if(line.startsWith("  - ⚠️"))return<div key={i} style={{color:"rgba(255,180,80,0.7)",paddingLeft:18,fontSize:11}}>{line.replace("  - ⚠️ ","⚠ ")}</div>;
+                      if(line.startsWith("- [ ]"))return<div key={i} style={{color:"rgba(255,255,255,0.5)",paddingLeft:8}}>□ {line.replace("- [ ] ","")}</div>;
+                      if(line.startsWith("- "))return<div key={i} style={{paddingLeft:8}}>{line}</div>;
+                      return<div key={i}>{line}</div>;
+                    })}
+                  </div>
+                  <div style={{marginBottom:16}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.35)",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:12}}>選択内容一覧</div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:8}}>
+                      {questions.map(qItem=>{
+                        const a=answers[qItem.id], opt=qItem.options.find(o=>o.id===a);
+                        return(
+                          <div key={qItem.id} style={{padding:"12px 14px",borderRadius:8,background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)"}}>
+                            <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",marginBottom:3}}>{qItem.phaseLabel} — {qItem.title}</div>
+                            <div style={{fontSize:12,color:"#fff",fontWeight:600}}>{opt?.icon} {opt?.label||a}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer actions */}
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>{ setStep("guide"); setCurrentQ(questions.length-1); }} style={{padding:"11px 18px",borderRadius:8,border:"1px solid rgba(255,255,255,0.12)",background:"rgba(255,255,255,0.05)",color:"rgba(255,255,255,0.6)",cursor:"pointer",fontSize:13}}>← 設計を修正</button>
+              <button onClick={handleRestart} style={{flex:1,padding:"11px 22px",borderRadius:8,border:"none",background:"linear-gradient(90deg,#0066cc,#0088ff)",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,boxShadow:"0 4px 16px rgba(0,102,204,0.4)"}}>🔄 最初からやり直す</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
