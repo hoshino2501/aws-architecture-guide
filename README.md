@@ -39,7 +39,7 @@
 ### ブラウザで直接開く（推奨）
 
 ```bash
-git clone https://github.com/your-username/aws-architecture-guide.git
+git clone https://github.com/hoshino2501/aws-architecture-guide.git
 cd aws-architecture-guide
 ```
 
@@ -86,8 +86,8 @@ HTMLファイル内の以下の部分を書き換えます。
 
 ```
 aws-architecture-guide/
-├── aws-architecture-guide.html   # メインファイル（これ1つで動作）
-├── aws-architecture-guide.jsx    # Reactソースコード
+├── docs/aws-architecture-guide.html   # メインファイル（これ1つで動作）
+├── docs/aws-architecture-guide.jsx    # Reactソースコード
 └── README.md
 ```
 
